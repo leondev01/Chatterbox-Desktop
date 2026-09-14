@@ -14,6 +14,7 @@ class InferenceProcess(QObject):
     ready = Signal()
     status = Signal(str)
     progress = Signal(int)
+    progress_mode = Signal(str)
     finished = Signal(str)
     error = Signal(str)
     restarted = Signal()
@@ -110,6 +111,8 @@ class InferenceProcess(QObject):
                 self.status.emit(str(message.get("message", "")))
             elif kind == "progress":
                 self.progress.emit(int(message.get("value", 0)))
+            elif kind == "progress_mode":
+                self.progress_mode.emit(str(message.get("mode", "determinate")))
             elif kind == "finished":
                 self.finished.emit(str(message.get("path", "")))
             elif kind == "error":

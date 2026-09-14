@@ -101,6 +101,7 @@ class MainWindow(QWidget):
         self._generation_active = False
         self.inference.status.connect(self._generation_status)
         self.inference.progress.connect(self._generation_progress)
+        self.inference.progress_mode.connect(self._generation_progress_mode)
         self.inference.finished.connect(self._generation_finished)
         self.inference.error.connect(self._inference_error)
 
@@ -488,9 +489,21 @@ class MainWindow(QWidget):
         if self._generation_active:
             self.info_label.setText(message)
 
+    @Slot(str)
+    def _generation_progress_mode(self, mode: str) -> None:
+        if not self._generation_active:
+            return
+        if mode == "busy":
+            self.generation_progress.setRange(0, 0)
+        else:
+            self.generation_progress.setRange(0, 100)
+            self.generation_progress.setValue(0)
+
     @Slot(int)
     def _generation_progress(self, value: int) -> None:
         if self._generation_active:
+            if self.generation_progress.maximum() == 0:
+                self.generation_progress.setRange(0, 100)
             self.generation_progress.setValue(max(0, min(100, value)))
 
     @Slot(str)
@@ -537,5 +550,12 @@ class MainWindow(QWidget):
         self.voice_combo.setEnabled(not active)
         self.status_ring.setVisible(active)
         self.generation_progress.setVisible(active)
-        self.generation_progress.setValue(0 if not active else self.generation_progress.value())
+        if not active:
+            self.generation_progress.setRange(0, 100)
+            self.generation_progress.setValue(0)
+        elif self.generation_progress.maximum() == 0:
+            pass
+        else:
+            self.generation_progress.setRange(0, 100)
+            self.generation_progress.setValue(0)
         self.info_label.setText(status)

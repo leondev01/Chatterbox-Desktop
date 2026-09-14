@@ -50,11 +50,19 @@ def main() -> int:
             cfg_weight = max(0.0, min(1.0, float(command.get("cfg_weight", 0.5))))
             speed = float(command.get("speed", 1.0))
 
-            send("status", message="Chatterbox generiert Audio …")
-            send("progress", value=5)
+            send("status", message="Audio wird geriert.")
+            # The first transformer forward pass happens before Chatterbox's sampling loop and can take several seconds.
+            # Use an indeterminate bar for that phase instead of leaving the UI at 5%.
+            send("progress_mode", mode="busy")
+
+            sampling_started = {"sent": False}
 
             def on_progress(value: float) -> None:
-                send("progress", value=10 + int(max(0.0, min(1.0, value)) * 85))
+                if not sampling_started["sent"]:
+                    sampling_started["sent"] = True
+                    send("progress_mode", mode="determinate")
+                    send("progress", value=0)
+                send("progress", value=int(max(0.0, min(1.0, value)) * 90))
 
             with contextlib.redirect_stdout(sys.stderr):
                 wav = engine.generate(

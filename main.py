@@ -10,7 +10,7 @@ from core.inference_process import InferenceProcess
 from core.settings import SettingsManager
 from ui.main_window import MainWindow
 
-APP_VERSION = "0.0.8"
+APP_VERSION = "0.0.9"
 
 
 class LoadingWindow(QWidget):

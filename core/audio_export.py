@@ -90,7 +90,7 @@ def export_mp3_with_speed(
         "-i",
         str(source_wav),
         "-filter:a",
-        f"atempo={atempo_speed:.6f}",
+        f"atempo={speed:.6f}",
         "-codec:a",
         "libmp3lame",
         "-q:a",
