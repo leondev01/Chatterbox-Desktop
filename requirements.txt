@@ -1,0 +1,8 @@
+PySide6>=6.7,<7
+PySide6-Fluent-Widgets>=1.11.3
+chatterbox-tts
+PyInstaller>=6.10
+
+# IMPORTANT:
+# chatterbox-tts depends on PyTorch. For NVIDIA/CUDA builds, run setup_cuda.bat
+# after installing these requirements. Do not install plain `torch` afterwards.
