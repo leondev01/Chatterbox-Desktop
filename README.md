@@ -1,4 +1,4 @@
-# Chatterbox Desktop App
+# Chatterbox App
 
 Windows-Desktop-App für Chatterbox TTS mit PySide6 und QFluentWidgets.
 

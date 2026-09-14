@@ -11,7 +11,7 @@ from core.settings import SettingsManager
 from core.tts_engine import TTSEngine
 from ui.main_window import MainWindow
 
-APP_VERSION = "0.0.4"
+APP_VERSION = "0.0.5"
 
 def main():
     QApplication.setHighDpiScaleFactorRoundingPolicy(
@@ -37,7 +37,7 @@ def main():
     engine = TTSEngine(device="cuda")
 
     window = MainWindow(settings=settings, engine=engine)
-    window.setWindowTitle(f"Chatterbox Desktop · v{APP_VERSION}")
+    window.setWindowTitle(f"Chatterbox · v{APP_VERSION}")
     window.show()
 
     sys.exit(app.exec())

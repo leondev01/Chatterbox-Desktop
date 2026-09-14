@@ -97,10 +97,24 @@ class TTSEngine:
             )
 
     def save_waveform(self, waveform, path: str | Path) -> None:
-        import torchaudio
+        """Save the generated waveform as a plain PCM WAV file.
 
-        tensor = waveform.detach().cpu()
-        if tensor.ndim == 1:
-            tensor = tensor.unsqueeze(0)
+        We intentionally do not use ``torchaudio.save`` here. Newer
+        torchaudio versions route saving through TorchCodec, which adds an
+        unnecessary runtime dependency for this app. FFmpeg handles the
+        subsequent WAV -> MP3 conversion, so a standard 16-bit PCM WAV is
+        sufficient and much more robust.
+        """
+        import wave
 
-        torchaudio.save(str(path), tensor, self.sample_rate)
+        tensor = waveform.detach().float().cpu().flatten()
+        tensor = tensor.clamp(-1.0, 1.0)
+        pcm = (tensor * 32767.0).round().to(torch.int16).numpy().tobytes()
+
+        output = Path(path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with wave.open(str(output), "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(self.sample_rate)
+            wav_file.writeframes(pcm)
