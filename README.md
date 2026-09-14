@@ -104,3 +104,10 @@ verwendet. Dadurch wird die Zeit verändert, ohne einfach die Tonhöhe per Resam
 ## Lizenzhinweis
 
 `PySide6-Fluent-Widgets` ist GPLv3 bzw. für kommerzielle Nutzung lizenzpflichtig. Prüfe die aktuelle Lizenz des Pakets, wenn du die App verteilen oder kommerziell einsetzen möchtest.
+
+
+## v0.0.7
+- Chatterbox/PyTorch läuft in einem separaten OS-Prozess, damit die Qt-Oberfläche beim Modell-Load nicht einfriert.
+- Der Startbildschirm bleibt animiert, bis das Modell wirklich bereit ist.
+- Generierung läuft ebenfalls außerhalb des GUI-Prozesses.
+- Stop beendet den Inferenzprozess sofort und startet ihn anschließend neu.

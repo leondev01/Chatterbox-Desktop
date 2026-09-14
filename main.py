@@ -1,36 +1,16 @@
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QThread, Signal, Slot, Qt
-from PySide6.QtGui import QFont, QIcon
-from PySide6.QtWidgets import QApplication, QFrame, QLabel, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
+from qfluentwidgets import BodyLabel, IndeterminateProgressBar, SubtitleLabel, Theme, setTheme
 
-from qfluentwidgets import (
-    BodyLabel,
-    IndeterminateProgressBar,
-    SubtitleLabel,
-    Theme,
-    setTheme,
-)
-
+from core.inference_process import InferenceProcess
 from core.settings import SettingsManager
-from core.tts_engine import TTSEngine
 from ui.main_window import MainWindow
 
-APP_VERSION = "0.0.6"
-
-
-class StartupLoader(QObject):
-    ready = Signal(object)
-    error = Signal(str)
-
-    @Slot()
-    def run(self) -> None:
-        try:
-            engine = TTSEngine(device="cuda")
-            self.ready.emit(engine)
-        except Exception as exc:
-            self.error.emit(str(exc))
+APP_VERSION = "0.0.7"
 
 
 class LoadingWindow(QWidget):
@@ -49,17 +29,17 @@ class LoadingWindow(QWidget):
         if icon_path.exists():
             icon.setPixmap(QIcon(str(icon_path)).pixmap(58, 58))
         icon.setAlignment(Qt.AlignCenter)
-
         title = SubtitleLabel("Chatterbox")
         title.setAlignment(Qt.AlignCenter)
-
         subtitle = BodyLabel("KI-Sprachmodell wird geladen …")
         subtitle.setAlignment(Qt.AlignCenter)
         subtitle.setObjectName("loadingSubtitle")
 
+        # Indeterminate mode is deliberately kept alive in the GUI process.
+        # Model loading happens in a separate OS process, so this animation
+        # cannot freeze when CUDA/PyTorch initialization is busy.
         self.progress = IndeterminateProgressBar(start=True)
         self.progress.setFixedHeight(5)
-
         hint = BodyLabel("Das kann beim ersten Start einige Minuten dauern.")
         hint.setAlignment(Qt.AlignCenter)
         hint.setObjectName("loadingHint")
@@ -71,29 +51,24 @@ class LoadingWindow(QWidget):
         layout.addWidget(self.progress)
         layout.addSpacing(4)
         layout.addWidget(hint)
-
         self.setStyleSheet("""
-            LoadingWindow {
-                border-radius: 18px;
-                background: rgba(32, 32, 32, 245);
-            }
-            #loadingSubtitle, #loadingHint {
-                color: rgba(180, 180, 180, 235);
-            }
+            LoadingWindow { border-radius: 18px; background: rgba(32, 32, 32, 245); }
+            #loadingSubtitle, #loadingHint { color: rgba(180, 180, 180, 235); }
         """)
 
 
 def main():
-    QApplication.setHighDpiScaleFactorRoundingPolicy(
-        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
-    )
+    if "--worker" in sys.argv:
+        from core.worker_process import main as worker_main
+        return worker_main()
 
+    QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
     setTheme(Theme.AUTO)
 
     if getattr(sys, "frozen", False):
-        icon = QIcon(sys.executable)
-        app.setWindowIcon(icon)
+        app_icon = QIcon(sys.executable)
+        app.setWindowIcon(app_icon)
         icon_path = Path(sys.executable)
     else:
         icon_path = Path(__file__).resolve().parent / "app_icon.ico"
@@ -106,22 +81,20 @@ def main():
     loading = LoadingWindow(icon_path)
     loading.show()
 
-    loader_thread = QThread()
-    loader = StartupLoader()
-    loader.moveToThread(loader_thread)
+    inference = InferenceProcess()
+    state = {"window": None}
 
-    state = {"window": None, "engine": None}
-
-    def on_ready(engine):
-        state["engine"] = engine
-        window = MainWindow(settings=settings, engine=engine)
+    def on_ready():
+        window = MainWindow(settings=settings, inference=inference)
         window.setWindowTitle(f"Chatterbox · v{APP_VERSION}")
         state["window"] = window
         window.show()
         loading.close()
-        loader_thread.quit()
 
-    def on_error(message):
+    def on_error(message: str):
+        if state["window"] is not None:
+            state["window"]._generation_error(message)
+            return
         loading.close()
         from qfluentwidgets import InfoBar
         InfoBar.error(
@@ -130,18 +103,16 @@ def main():
             parent=None,
             duration=10000,
         )
-        loader_thread.quit()
         app.quit()
 
-    loader.ready.connect(on_ready)
-    loader.error.connect(on_error)
-    loader_thread.started.connect(loader.run)
-    loader_thread.finished.connect(loader.deleteLater)
-    loader_thread.finished.connect(loader_thread.deleteLater)
-    loader_thread.start()
+    inference.ready.connect(on_ready)
+    inference.error.connect(on_error)
+    inference.start()
 
-    sys.exit(app.exec())
+    exit_code = app.exec()
+    inference.shutdown()
+    return exit_code
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

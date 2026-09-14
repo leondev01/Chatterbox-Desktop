@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import re
 import shutil
-import time
-import uuid
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QThread, Signal, Slot, Qt
+from PySide6.QtCore import Signal, Slot, Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -38,113 +36,9 @@ from qfluentwidgets import (
     TitleLabel,
 )
 
-from core.audio_export import FFmpegError, export_mp3_with_speed, ffmpeg_available
+from core.audio_export import ffmpeg_available
+from core.inference_process import InferenceProcess
 from core.settings import SettingsManager
-from core.tts_engine import TTSEngine
-
-
-class GenerationWorker(QObject):
-    finished = Signal(str)
-    error = Signal(str)
-    status = Signal(str)
-    progress = Signal(int)
-    cancelled = Signal()
-
-    def __init__(
-        self,
-        engine: TTSEngine,
-        settings: SettingsManager,
-        text: str,
-        exaggeration: float,
-        cfg_weight: float,
-        speed: float,
-        voice_path: str,
-        output_dir: str,
-        number: int,
-    ) -> None:
-        super().__init__()
-        self.engine = engine
-        self.settings = settings
-        self.text = text
-        self.exaggeration = exaggeration
-        self.cfg_weight = cfg_weight
-        self.speed = speed
-        self.voice_path = voice_path
-        self.output_dir = Path(output_dir)
-        self.number = number
-        self._cancel_requested = False
-
-    def request_cancel(self) -> None:
-        self._cancel_requested = True
-
-    @Slot()
-    def run(self) -> None:
-        temp_wav = self.output_dir / f".chatterbox_{uuid.uuid4().hex}.wav"
-        output_mp3 = self.output_dir / f"Voiceover({self.number}).mp3"
-
-        try:
-            if not self.text.strip():
-                raise ValueError("Bitte gib zuerst einen Text ein.")
-
-            if not ffmpeg_available():
-                raise FFmpegError(
-                    "FFmpeg wurde nicht gefunden. Lege ffmpeg.exe neben "
-                    "die App oder füge FFmpeg zum PATH hinzu."
-                )
-
-            if self.voice_path and not Path(self.voice_path).exists():
-                raise FileNotFoundError(
-                    "Die ausgewählte Referenzstimme existiert nicht mehr."
-                )
-
-            self.output_dir.mkdir(parents=True, exist_ok=True)
-
-            if self._cancel_requested:
-                self.cancelled.emit()
-                return
-
-            started = time.perf_counter()
-            if self.voice_path:
-                self.status.emit("Referenzstimme wird vorbereitet …")
-                self.progress.emit(5)
-            else:
-                self.progress.emit(5)
-            self.status.emit("Chatterbox generiert Audio …")
-
-            wav = self.engine.generate(
-                text=self.text,
-                exaggeration=max(0.0, min(1.0, self.exaggeration)),
-                cfg_weight=max(0.0, min(1.0, self.cfg_weight)),
-                audio_prompt_path=self.voice_path or None,
-                progress_callback=lambda value: self.progress.emit(10 + int(value * 85)),
-            )
-
-            generation_seconds = time.perf_counter() - started
-
-            if self._cancel_requested:
-                self.cancelled.emit()
-                return
-
-            self.progress.emit(95)
-            self.status.emit(f"Audio fertig ({generation_seconds:.1f} s) · MP3 wird exportiert …")
-            self.engine.save_waveform(wav, temp_wav)
-
-            if self._cancel_requested:
-                self.cancelled.emit()
-                return
-
-            export_mp3_with_speed(temp_wav, output_mp3, self.speed)
-            self.progress.emit(100)
-
-            self.finished.emit(str(output_mp3))
-
-        except Exception as exc:
-            self.error.emit(str(exc))
-        finally:
-            try:
-                temp_wav.unlink(missing_ok=True)
-            except OSError:
-                pass
 
 
 class SliderRow(QFrame):
@@ -200,13 +94,15 @@ class SliderRow(QFrame):
 
 
 class MainWindow(QWidget):
-    def __init__(self, settings: SettingsManager, engine: TTSEngine):
+    def __init__(self, settings: SettingsManager, inference: InferenceProcess):
         super().__init__()
         self.settings = settings
-        self.engine = engine
-
-        self.thread: QThread | None = None
-        self.worker: GenerationWorker | None = None
+        self.inference = inference
+        self._generation_active = False
+        self.inference.status.connect(self._generation_status)
+        self.inference.progress.connect(self._generation_progress)
+        self.inference.finished.connect(self._generation_finished)
+        self.inference.error.connect(self._inference_error)
 
         self.setWindowTitle("Chatterbox Desktop")
         self.resize(1120, 780)
@@ -559,118 +455,77 @@ class MainWindow(QWidget):
 
         output_dir = self.output_edit.text().strip()
         if not output_dir:
-            InfoBar.warning(
-                "Kein Ausgabeordner",
-                "Wähle zuerst einen Safe-Location-Ordner aus.",
-                parent=self,
-            )
+            InfoBar.warning("Kein Ausgabeordner", "Wähle zuerst einen Safe-Location-Ordner aus.", parent=self)
             return
-
         if not Path(output_dir).exists():
-            InfoBar.warning(
-                "Ausgabeordner fehlt",
-                "Der gespeicherte Ordner existiert nicht mehr. Bitte wähle einen neuen.",
-                parent=self,
-            )
+            InfoBar.warning("Ausgabeordner fehlt", "Der gespeicherte Ordner existiert nicht mehr. Bitte wähle einen neuen.", parent=self)
             return
-
         if not ffmpeg_available():
             self._check_ffmpeg()
+            return
+        if not self.inference.is_ready:
+            InfoBar.warning("Modell wird noch geladen", "Warte bitte, bis Chatterbox vollständig gestartet ist.", parent=self, position=InfoBarPosition.TOP)
             return
 
         voice_path = self.voice_combo.currentData() or ""
         number = self.settings.reserve_next_number(output_dir)
+        payload = {
+            "text": text,
+            "exaggeration": self.exaggeration.slider.value() / 100.0,
+            "cfg_weight": self.cfg_weight.slider.value() / 100.0,
+            "speed": self.speed.slider.value() / 100.0,
+            "voice_path": str(voice_path),
+            "output_dir": output_dir,
+            "number": number,
+        }
 
-        exaggeration = self.exaggeration.slider.value() / 100.0
-        cfg_weight = self.cfg_weight.slider.value() / 100.0
-        speed = self.speed.slider.value() / 100.0
-
+        self._generation_active = True
         self._set_generating(True, f"Generiere Voiceover({number}).mp3 …")
-
-        self.thread = QThread(self)
-        self.worker = GenerationWorker(
-            engine=self.engine,
-            settings=self.settings,
-            text=text,
-            exaggeration=exaggeration,
-            cfg_weight=cfg_weight,
-            speed=speed,
-            voice_path=str(voice_path),
-            output_dir=output_dir,
-            number=number,
-        )
-        self.worker.moveToThread(self.thread)
-
-        self.thread.started.connect(self.worker.run)
-        self.worker.finished.connect(self._generation_finished)
-        self.worker.error.connect(self._generation_error)
-        self.worker.status.connect(self._generation_status)
-        self.worker.progress.connect(self._generation_progress)
-        self.worker.cancelled.connect(self._generation_cancelled)
-        self.worker.finished.connect(self.thread.quit)
-        self.worker.error.connect(self.thread.quit)
-        self.worker.cancelled.connect(self.thread.quit)
-        self.thread.finished.connect(self._worker_cleanup)
-
-        self.thread.start()
+        self.inference.generate(payload)
 
     @Slot(str)
     def _generation_status(self, message: str) -> None:
-        self.info_label.setText(message)
+        if self._generation_active:
+            self.info_label.setText(message)
 
     @Slot(int)
     def _generation_progress(self, value: int) -> None:
-        self.generation_progress.setValue(max(0, min(100, value)))
+        if self._generation_active:
+            self.generation_progress.setValue(max(0, min(100, value)))
 
     @Slot(str)
     def _generation_finished(self, path: str) -> None:
+        self._generation_active = False
         self._set_generating(False, f"Fertig: {Path(path).name}")
-        InfoBar.success(
-            "Voiceover erstellt",
-            f"Gespeichert unter:\n{path}",
-            parent=self,
-            position=InfoBarPosition.TOP,
-            duration=5000,
-        )
+        InfoBar.success("Voiceover erstellt", f"Gespeichert unter:\n{path}", parent=self, position=InfoBarPosition.TOP, duration=5000)
 
-    @Slot()
-    def _generation_cancelled(self) -> None:
-        self._set_generating(False, "Generierung abgebrochen")
-        InfoBar.warning(
-            "Generierung abgebrochen",
-            "Es wurde keine MP3-Datei exportiert.",
-            parent=self,
-            position=InfoBarPosition.TOP,
-            duration=3500,
-        )
+    @Slot(str)
+    def _inference_error(self, message: str) -> None:
+        # Startup errors are handled by main.py. During generation, show them here.
+        if self._generation_active:
+            self._generation_active = False
+            self._set_generating(False, "Generierung fehlgeschlagen")
+            InfoBar.error("Generierung fehlgeschlagen", message, parent=self, position=InfoBarPosition.TOP, duration=8000)
 
     @Slot(str)
     def _generation_error(self, message: str) -> None:
-        self._set_generating(False, "Generierung fehlgeschlagen")
-        InfoBar.error(
-            "Generierung fehlgeschlagen",
-            message,
-            parent=self,
-            position=InfoBarPosition.TOP,
-            duration=8000,
-        )
+        self._inference_error(message)
 
-    def _worker_cleanup(self) -> None:
-        if self.worker:
-            self.worker.deleteLater()
-        if self.thread:
-            self.thread.deleteLater()
-        self.worker = None
-        self.thread = None
 
     def _stop_generation(self) -> None:
-        if self.worker is None:
+        if not self._generation_active:
             return
-
-        self.worker.request_cancel()
         self.stop_button.setEnabled(False)
-        self.info_label.setText(
-            "Abbruch angefordert … Chatterbox beendet den aktuellen Rechenschritt."
+        self.info_label.setText("Generierung wird sofort beendet …")
+        self._generation_active = False
+        self._set_generating(False, "Generierung abgebrochen")
+        self.inference.stop_and_restart()
+        InfoBar.warning(
+            "Generierung abgebrochen",
+            "Der laufende Chatterbox-Prozess wurde sicher beendet. Das Modell wird im Hintergrund neu geladen.",
+            parent=self,
+            position=InfoBarPosition.TOP,
+            duration=4500,
         )
 
     def _set_generating(self, active: bool, status: str) -> None:
@@ -680,13 +535,7 @@ class MainWindow(QWidget):
         self.add_voice_button.setEnabled(not active)
         self.output_button.setEnabled(not active)
         self.voice_combo.setEnabled(not active)
-
-        # QFluentWidgets ProgressRing animates while visible; it has no
-        # start()/stop() API in current PySide6-Fluent-Widgets releases.
         self.status_ring.setVisible(active)
         self.generation_progress.setVisible(active)
-        if active:
-            self.generation_progress.setValue(0)
-        else:
-            self.generation_progress.setValue(0)
+        self.generation_progress.setValue(0 if not active else self.generation_progress.value())
         self.info_label.setText(status)
