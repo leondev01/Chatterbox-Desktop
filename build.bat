@@ -33,6 +33,10 @@ if exist "%~dp0ffmpeg.exe" (
     echo Lege eine Windows-64-bit ffmpeg.exe in diesen Projektordner oder unter third_party\ffmpeg.exe.
     exit /b 1
 )
+if not exist "%~dp0app_icon.ico" (
+    echo [ERROR] app_icon.ico fehlt.
+    exit /b 1
+)
 
 echo [4/6] Installing/updating PyInstaller...
 "%PY%" -m pip install -U pyinstaller || exit /b 1

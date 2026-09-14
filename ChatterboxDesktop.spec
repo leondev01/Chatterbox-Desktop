@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules, collect_dyn
 
 
 # Chatterbox and the Qt/ML stack use dynamic imports and package data.
-datas = []
+datas = [("app_icon.ico", ".")]
 binaries = []
 hiddenimports = []
 
@@ -62,6 +62,7 @@ exe = EXE(
     a.datas,
     [],
     name="ChatterboxDesktop",
+    icon="app_icon.ico",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

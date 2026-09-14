@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import time
 import uuid
 from pathlib import Path
 
@@ -43,6 +44,7 @@ from core.tts_engine import TTSEngine
 class GenerationWorker(QObject):
     finished = Signal(str)
     error = Signal(str)
+    status = Signal(str)
 
     def __init__(
         self,
@@ -89,6 +91,11 @@ class GenerationWorker(QObject):
 
             self.output_dir.mkdir(parents=True, exist_ok=True)
 
+            started = time.perf_counter()
+            if self.voice_path:
+                self.status.emit("Referenzstimme wird vorbereitet …")
+            self.status.emit("Chatterbox generiert Audio …")
+
             wav = self.engine.generate(
                 text=self.text,
                 exaggeration=max(0.0, min(1.0, self.exaggeration)),
@@ -96,6 +103,8 @@ class GenerationWorker(QObject):
                 audio_prompt_path=self.voice_path or None,
             )
 
+            generation_seconds = time.perf_counter() - started
+            self.status.emit(f"Audio fertig ({generation_seconds:.1f} s) · MP3 wird exportiert …")
             self.engine.save_waveform(wav, temp_wav)
             export_mp3_with_speed(temp_wav, output_mp3, self.speed)
 
@@ -119,12 +128,12 @@ class SliderRow(QFrame):
 
         # Fixed vertical budget prevents Fluent labels from being clipped on
         # Windows scaling settings (125%/150%) and smaller window heights.
-        self.setMinimumHeight(96)
+        self.setMinimumHeight(92)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 10, 18, 8)
-        layout.setSpacing(2)
+        layout.setContentsMargins(18, 9, 18, 7)
+        layout.setSpacing(1)
 
         top = QHBoxLayout()
         self.title = BodyLabel(title)
@@ -264,9 +273,10 @@ class MainWindow(QWidget):
         controls.setSpacing(18)
 
         left_card = CardWidget()
+        left_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         left_layout = QVBoxLayout(left_card)
         left_layout.setContentsMargins(18, 18, 18, 18)
-        left_layout.setSpacing(12)
+        left_layout.setSpacing(20)
         left_layout.addWidget(SubtitleLabel("Stimme"))
 
         voice_row = QHBoxLayout()
@@ -289,12 +299,13 @@ class MainWindow(QWidget):
         output_row.addWidget(self.output_button)
         left_layout.addLayout(output_row)
 
-        controls.addWidget(left_card, 1)
+        controls.addWidget(left_card, 1, Qt.AlignTop)
 
         right_card = CardWidget()
+        right_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         right_layout = QVBoxLayout(right_card)
         right_layout.setContentsMargins(18, 18, 18, 18)
-        right_layout.setSpacing(10)
+        right_layout.setSpacing(8)
         right_layout.addWidget(SubtitleLabel("Feineinstellungen"))
 
         self.exaggeration = SliderRow(
@@ -316,7 +327,7 @@ class MainWindow(QWidget):
         right_layout.addWidget(self.cfg_weight)
         right_layout.addWidget(self.speed)
 
-        controls.addWidget(right_card, 1)
+        controls.addWidget(right_card, 1, Qt.AlignTop)
         content_layout.addLayout(controls)
 
         scroll = QScrollArea()
@@ -375,11 +386,11 @@ class MainWindow(QWidget):
 
     def _check_ffmpeg(self) -> None:
         if not ffmpeg_available():
-            self.info_label.setText("FFmpeg fehlt im PATH")
+            self.info_label.setText("FFmpeg fehlt")
             InfoBar.warning(
                 "FFmpeg nicht gefunden",
-                "Für die Entwicklung muss FFmpeg im PATH liegen. "
-                "Die fertige Version kann ffmpeg.exe direkt mitbringen.",
+                "Lege ffmpeg.exe für die Entwicklung in den Projektordner "
+                "oder installiere FFmpeg im PATH. Die fertige EXE kann FFmpeg mitbringen.",
                 parent=self,
                 duration=7000,
             )
@@ -527,11 +538,16 @@ class MainWindow(QWidget):
         self.thread.started.connect(self.worker.run)
         self.worker.finished.connect(self._generation_finished)
         self.worker.error.connect(self._generation_error)
+        self.worker.status.connect(self._generation_status)
         self.worker.finished.connect(self.thread.quit)
         self.worker.error.connect(self.thread.quit)
         self.thread.finished.connect(self._worker_cleanup)
 
         self.thread.start()
+
+    @Slot(str)
+    def _generation_status(self, message: str) -> None:
+        self.info_label.setText(message)
 
     @Slot(str)
     def _generation_finished(self, path: str) -> None:
