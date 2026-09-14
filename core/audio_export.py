@@ -77,15 +77,6 @@ def export_mp3_with_speed(
     if not 0.5 <= speed <= 2.0:
         raise ValueError("Die Geschwindigkeit muss zwischen 0.5x und 2.0x liegen.")
 
-    # Chatterbox's raw output is noticeably faster than the playback speed
-    # users normally expect from a voiceover. The UI is calibrated so that
-    # 1.00x means the app's normal/natural voiceover speed. The endpoints
-    # remain 0.5x and 2.0x.
-    if speed <= 1.0:
-        atempo_speed = 0.5 + (speed - 0.5) * 0.5
-    else:
-        atempo_speed = 0.75 + (speed - 1.0) * 1.25
-
     source_wav = Path(source_wav)
     output_mp3 = Path(output_mp3)
     output_mp3.parent.mkdir(parents=True, exist_ok=True)
