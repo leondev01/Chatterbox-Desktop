@@ -116,9 +116,14 @@ class SliderRow(QFrame):
         super().__init__(parent)
         self.setObjectName("sliderCard")
 
+        # Fixed vertical budget prevents Fluent labels from being clipped on
+        # Windows scaling settings (125%/150%) and smaller window heights.
+        self.setMinimumHeight(100)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 14, 18, 14)
-        layout.setSpacing(5)
+        layout.setContentsMargins(18, 12, 18, 10)
+        layout.setSpacing(4)
 
         top = QHBoxLayout()
         self.title = BodyLabel(title)
@@ -131,7 +136,10 @@ class SliderRow(QFrame):
 
         self.description = QLabel(description)
         self.description.setObjectName("mutedLabel")
+        self.description.setMinimumHeight(18)
+        self.description.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.slider = Slider(Qt.Horizontal)
+        self.slider.setFixedHeight(20)
         self.slider.setRange(minimum, maximum)
         self.slider.setValue(value)
         self.suffix = suffix

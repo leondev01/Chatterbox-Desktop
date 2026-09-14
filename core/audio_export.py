@@ -9,12 +9,31 @@ class FFmpegError(RuntimeError):
     pass
 
 
+def _bundled_ffmpeg() -> Path | None:
+    """Return the FFmpeg shipped next to the packaged application, if present."""
+    candidates = [
+        Path(__file__).resolve().parent.parent / "ffmpeg.exe",
+        Path(__file__).resolve().parent.parent / "third_party" / "ffmpeg.exe",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def ffmpeg_executable() -> str | None:
+    bundled = _bundled_ffmpeg()
+    if bundled:
+        return str(bundled)
+    return shutil.which("ffmpeg")
+
+
 def ffmpeg_available() -> bool:
-    return shutil.which("ffmpeg") is not None
+    return ffmpeg_executable() is not None
 
 
 def ffmpeg_version() -> str:
-    executable = shutil.which("ffmpeg")
+    executable = ffmpeg_executable()
     if not executable:
         return ""
 
@@ -34,17 +53,13 @@ def export_mp3_with_speed(
     output_mp3: str | Path,
     speed: float,
 ) -> None:
-    """
-    Apply pitch-preserving speed change using FFmpeg's atempo filter,
-    then encode the result as MP3.
-
-    The UI range is 0.5x..2.0x, which is exactly within one atempo filter's
-    supported range.
-    """
-    if not ffmpeg_available():
+    """Apply pitch-preserving speed change with FFmpeg and export MP3."""
+    executable = ffmpeg_executable()
+    if not executable:
         raise FFmpegError(
-            "FFmpeg wurde nicht gefunden. Bitte FFmpeg installieren und "
-            "ffmpeg.exe zum PATH hinzufügen."
+            "FFmpeg wurde nicht gefunden. Die fertige App bringt FFmpeg "
+            "normalerweise bereits mit. Bei einer Entwicklungsinstallation "
+            "muss ffmpeg.exe im PATH liegen."
         )
 
     speed = float(speed)
@@ -56,7 +71,7 @@ def export_mp3_with_speed(
     output_mp3.parent.mkdir(parents=True, exist_ok=True)
 
     command = [
-        "ffmpeg",
+        executable,
         "-y",
         "-hide_banner",
         "-loglevel",
