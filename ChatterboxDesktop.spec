@@ -7,6 +7,13 @@ datas = []
 binaries = []
 hiddenimports = []
 
+# Bundle FFmpeg when the developer places it in the project.
+from pathlib import Path
+if Path("ffmpeg.exe").is_file():
+    binaries.append(("ffmpeg.exe", "."))
+elif Path("third_party/ffmpeg.exe").is_file():
+    binaries.append(("third_party/ffmpeg.exe", "third_party"))
+
 for package in ("chatterbox", "qfluentwidgets", "torch", "torchaudio"):
     try:
         d, b, h = collect_all(package)

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QVBoxLayout,
     QWidget,
+    QScrollArea,
 )
 
 from qfluentwidgets import (
@@ -77,8 +78,8 @@ class GenerationWorker(QObject):
 
             if not ffmpeg_available():
                 raise FFmpegError(
-                    "FFmpeg wurde nicht gefunden. Bitte FFmpeg installieren "
-                    "und ffmpeg.exe zum PATH hinzufügen."
+                    "FFmpeg wurde nicht gefunden. Lege ffmpeg.exe neben "
+                    "die App oder füge FFmpeg zum PATH hinzu."
                 )
 
             if self.voice_path and not Path(self.voice_path).exists():
@@ -118,12 +119,12 @@ class SliderRow(QFrame):
 
         # Fixed vertical budget prevents Fluent labels from being clipped on
         # Windows scaling settings (125%/150%) and smaller window heights.
-        self.setMinimumHeight(100)
+        self.setMinimumHeight(96)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 12, 18, 10)
-        layout.setSpacing(4)
+        layout.setContentsMargins(18, 10, 18, 8)
+        layout.setSpacing(2)
 
         top = QHBoxLayout()
         self.title = BodyLabel(title)
@@ -137,6 +138,7 @@ class SliderRow(QFrame):
         self.description = QLabel(description)
         self.description.setObjectName("mutedLabel")
         self.description.setMinimumHeight(18)
+        self.description.setMaximumHeight(20)
         self.description.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.slider = Slider(Qt.Horizontal)
         self.slider.setFixedHeight(20)
@@ -153,7 +155,9 @@ class SliderRow(QFrame):
 
     def _update_value(self, value: int) -> None:
         self.value_label.setText(
-            f"{value}{self.suffix}" if self.suffix else str(value)
+            (f"{value / 100:.2f}x" if self.suffix == "x" else f"{value}{self.suffix}")
+            if self.suffix
+            else str(value)
         )
         self.valueChanged.emit(value)
 
@@ -169,7 +173,7 @@ class MainWindow(QWidget):
 
         self.setWindowTitle("Chatterbox Desktop")
         self.resize(1120, 780)
-        self.setMinimumSize(900, 650)
+        self.setMinimumSize(820, 560)
 
         self._apply_windows_mica()
         self._build_ui()
@@ -214,8 +218,8 @@ class MainWindow(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(34, 30, 34, 30)
-        root.setSpacing(18)
+        root.setContentsMargins(28, 24, 28, 22)
+        root.setSpacing(12)
 
         header = QHBoxLayout()
         title_box = QVBoxLayout()
@@ -247,7 +251,13 @@ class MainWindow(QWidget):
         )
         self.text_edit.setMinimumHeight(210)
         text_layout.addWidget(self.text_edit)
-        root.addWidget(text_card)
+        # The main content is vertically scrollable so smaller window sizes
+        # never clip the controls. The footer stays visible at the bottom.
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(12)
+        content_layout.addWidget(text_card)
 
         # Controls in two columns
         controls = QHBoxLayout()
@@ -300,14 +310,21 @@ class MainWindow(QWidget):
         self.speed = SliderRow(
             "Sprachgeschwindigkeit",
             "Wird nach der Generierung per FFmpeg angepasst",
-            50, 200, 100, "%"
+            50, 200, 100, "x"
         )
         right_layout.addWidget(self.exaggeration)
         right_layout.addWidget(self.cfg_weight)
         right_layout.addWidget(self.speed)
 
         controls.addWidget(right_card, 1)
-        root.addLayout(controls)
+        content_layout.addLayout(controls)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(content)
+        root.addWidget(scroll, 1)
 
         footer = QHBoxLayout()
         self.info_label = BodyLabel("Bereit")
@@ -361,8 +378,8 @@ class MainWindow(QWidget):
             self.info_label.setText("FFmpeg fehlt im PATH")
             InfoBar.warning(
                 "FFmpeg nicht gefunden",
-                "Installiere FFmpeg und füge ffmpeg.exe zum PATH hinzu. "
-                "Ohne FFmpeg kann kein MP3 exportiert werden.",
+                "Für die Entwicklung muss FFmpeg im PATH liegen. "
+                "Die fertige Version kann ffmpeg.exe direkt mitbringen.",
                 parent=self,
                 duration=7000,
             )

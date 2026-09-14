@@ -22,3 +22,10 @@ required for CUDA inference.
 
 The Chatterbox model itself may still be downloaded on first launch by the
 Hugging Face/model-loading mechanism unless the model cache is distributed too.
+
+
+## Version 0.0.1
+
+The 0.0.1 build uses a responsive scrollable content area so controls are not clipped in smaller windows. The final PyInstaller build is intended as a Windows onedir application and bundles Python dependencies and FFmpeg.
+
+Before building, place a Windows x64 `ffmpeg.exe` next to `build.bat` or in `third_party\ffmpeg.exe`. The target PC still needs a compatible NVIDIA driver for CUDA.

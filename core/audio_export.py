@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -11,10 +12,20 @@ class FFmpegError(RuntimeError):
 
 def _bundled_ffmpeg() -> Path | None:
     """Return the FFmpeg shipped next to the packaged application, if present."""
-    candidates = [
+    candidates = []
+    if getattr(sys, "frozen", False):
+        # PyInstaller extracts bundled files to _MEIPASS. Also check next to
+        # the executable for onedir builds.
+        meipass = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+        candidates.extend([
+            meipass / "ffmpeg.exe",
+            Path(sys.executable).resolve().parent / "ffmpeg.exe",
+            Path(sys.executable).resolve().parent / "third_party" / "ffmpeg.exe",
+        ])
+    candidates.extend([
         Path(__file__).resolve().parent.parent / "ffmpeg.exe",
         Path(__file__).resolve().parent.parent / "third_party" / "ffmpeg.exe",
-    ]
+    ])
     for candidate in candidates:
         if candidate.is_file():
             return candidate
