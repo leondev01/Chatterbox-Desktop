@@ -25,6 +25,9 @@ class SettingsManager:
             "selected_voice": "",
             "safe_location": "",
             "counter": 0,
+            "exaggeration": 50,
+            "cfg_weight": 50,
+            "speed": 100,
         }
         self.load()
 
@@ -70,6 +73,16 @@ class SettingsManager:
     @safe_location.setter
     def safe_location(self, value: str) -> None:
         self.data["safe_location"] = value
+        self.save()
+
+    def get_slider_value(self, key: str, default: int) -> int:
+        try:
+            return max(0, min(200, int(self.data.get(key, default))))
+        except (TypeError, ValueError):
+            return default
+
+    def set_slider_value(self, key: str, value: int) -> None:
+        self.data[key] = int(value)
         self.save()
 
     @property

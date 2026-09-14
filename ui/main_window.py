@@ -355,6 +355,17 @@ class MainWindow(QWidget):
         self.generate_button.clicked.connect(self._generate)
         self.voice_combo.currentIndexChanged.connect(self._voice_changed)
 
+        # Remember the three generation settings between app launches.
+        self.exaggeration.valueChanged.connect(
+            lambda value: self.settings.set_slider_value("exaggeration", value)
+        )
+        self.cfg_weight.valueChanged.connect(
+            lambda value: self.settings.set_slider_value("cfg_weight", value)
+        )
+        self.speed.valueChanged.connect(
+            lambda value: self.settings.set_slider_value("speed", value)
+        )
+
         self.setStyleSheet("""
             QWidget {
                 font-size: 14px;
@@ -372,6 +383,18 @@ class MainWindow(QWidget):
         """)
 
     def _load_persistent_values(self) -> None:
+        # Restore the last generation settings. Values are stored as slider
+        # integers so there is no precision loss.
+        self.exaggeration.slider.setValue(
+            self.settings.get_slider_value("exaggeration", 50)
+        )
+        self.cfg_weight.slider.setValue(
+            self.settings.get_slider_value("cfg_weight", 50)
+        )
+        self.speed.slider.setValue(
+            max(50, min(200, self.settings.get_slider_value("speed", 100)))
+        )
+
         output = self.settings.safe_location
         if output and Path(output).exists():
             self.output_edit.setText(output)
