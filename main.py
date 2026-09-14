@@ -11,7 +11,7 @@ from core.settings import SettingsManager
 from core.tts_engine import TTSEngine
 from ui.main_window import MainWindow
 
-APP_VERSION = "0.0.3"
+APP_VERSION = "0.0.4"
 
 def main():
     QApplication.setHighDpiScaleFactorRoundingPolicy(

@@ -45,6 +45,7 @@ class GenerationWorker(QObject):
     finished = Signal(str)
     error = Signal(str)
     status = Signal(str)
+    cancelled = Signal()
 
     def __init__(
         self,
@@ -68,6 +69,10 @@ class GenerationWorker(QObject):
         self.voice_path = voice_path
         self.output_dir = Path(output_dir)
         self.number = number
+        self._cancel_requested = False
+
+    def request_cancel(self) -> None:
+        self._cancel_requested = True
 
     @Slot()
     def run(self) -> None:
@@ -91,6 +96,10 @@ class GenerationWorker(QObject):
 
             self.output_dir.mkdir(parents=True, exist_ok=True)
 
+            if self._cancel_requested:
+                self.cancelled.emit()
+                return
+
             started = time.perf_counter()
             if self.voice_path:
                 self.status.emit("Referenzstimme wird vorbereitet …")
@@ -104,8 +113,18 @@ class GenerationWorker(QObject):
             )
 
             generation_seconds = time.perf_counter() - started
+
+            if self._cancel_requested:
+                self.cancelled.emit()
+                return
+
             self.status.emit(f"Audio fertig ({generation_seconds:.1f} s) · MP3 wird exportiert …")
             self.engine.save_waveform(wav, temp_wav)
+
+            if self._cancel_requested:
+                self.cancelled.emit()
+                return
+
             export_mp3_with_speed(temp_wav, output_mp3, self.speed)
 
             self.finished.emit(str(output_mp3))
@@ -345,14 +364,21 @@ class MainWindow(QWidget):
         self.generate_button.setMinimumHeight(44)
         self.generate_button.setMinimumWidth(220)
 
+        self.stop_button = PushButton(FIF.CLOSE, "Generierung stoppen")
+        self.stop_button.setMinimumHeight(44)
+        self.stop_button.setMinimumWidth(190)
+        self.stop_button.hide()
+
         footer.addWidget(self.info_label)
         footer.addStretch()
+        footer.addWidget(self.stop_button)
         footer.addWidget(self.generate_button)
         root.addLayout(footer)
 
         self.add_voice_button.clicked.connect(self._add_voice)
         self.output_button.clicked.connect(self._choose_output)
         self.generate_button.clicked.connect(self._generate)
+        self.stop_button.clicked.connect(self._stop_generation)
         self.voice_combo.currentIndexChanged.connect(self._voice_changed)
 
         # Remember the three generation settings between app launches.
@@ -562,8 +588,10 @@ class MainWindow(QWidget):
         self.worker.finished.connect(self._generation_finished)
         self.worker.error.connect(self._generation_error)
         self.worker.status.connect(self._generation_status)
+        self.worker.cancelled.connect(self._generation_cancelled)
         self.worker.finished.connect(self.thread.quit)
         self.worker.error.connect(self.thread.quit)
+        self.worker.cancelled.connect(self.thread.quit)
         self.thread.finished.connect(self._worker_cleanup)
 
         self.thread.start()
@@ -580,6 +608,16 @@ class MainWindow(QWidget):
             f"Gespeichert unter:\n{path}",
             parent=self,
             duration=5000,
+        )
+
+    @Slot()
+    def _generation_cancelled(self) -> None:
+        self._set_generating(False, "Generierung abgebrochen")
+        InfoBar.warning(
+            "Generierung abgebrochen",
+            "Es wurde keine MP3-Datei exportiert.",
+            parent=self,
+            duration=3500,
         )
 
     @Slot(str)
@@ -600,16 +638,25 @@ class MainWindow(QWidget):
         self.worker = None
         self.thread = None
 
+    def _stop_generation(self) -> None:
+        if self.worker is None:
+            return
+
+        self.worker.request_cancel()
+        self.stop_button.setEnabled(False)
+        self.info_label.setText(
+            "Abbruch angefordert … Chatterbox beendet den aktuellen Rechenschritt."
+        )
+
     def _set_generating(self, active: bool, status: str) -> None:
         self.generate_button.setEnabled(not active)
+        self.stop_button.setVisible(active)
+        self.stop_button.setEnabled(active)
         self.add_voice_button.setEnabled(not active)
         self.output_button.setEnabled(not active)
         self.voice_combo.setEnabled(not active)
 
+        # QFluentWidgets ProgressRing animates while visible; it has no
+        # start()/stop() API in current PySide6-Fluent-Widgets releases.
         self.status_ring.setVisible(active)
         self.info_label.setText(status)
-
-        if active:
-            self.status_ring.start()
-        else:
-            self.status_ring.stop()
