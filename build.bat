@@ -7,17 +7,27 @@ echo   Chatterbox Desktop - Windows Build
 echo ========================================
 echo.
 
-if exist "%~dp0.venv\Scripts\python.exe" (set "PY=%~dp0.venv\Scripts\python.exe") else if exist "%~dp0..\.venv\Scripts\python.exe" (set "PY=%~dp0..\.venv\Scripts\python.exe") else (echo [ERROR] Keine .venv gefunden.&echo Erstelle zuerst: py -3.11 -m venv .venv&exit /b 1)
+if exist "%~dp0.venv\Scripts\python.exe" (
+    set "PY=%~dp0.venv\Scripts\python.exe"
+) else if exist "%~dp0..\.venv\Scripts\python.exe" (
+    set "PY=%~dp0..\.venv\Scripts\python.exe"
+) else (
+    echo [ERROR] Keine .venv gefunden.
+    echo Erstelle zuerst: py -3.11 -m venv .venv
+    exit /b 1
+)
 
 echo [1/7] Checking Python environment...
 "%PY%" --version || goto :error
 
 echo.
+
 echo [2/7] Installing project dependencies...
 "%PY%" -m pip install --upgrade pip || goto :error
 "%PY%" -m pip install -r "%~dp0requirements.txt" || goto :error
 
 echo.
+
 echo [3/7] Installing CUDA-enabled PyTorch...
 "%PY%" -m pip install --upgrade torch torchaudio --index-url https://download.pytorch.org/whl/cu128 || goto :error
 "%PY%" -c "import torch; assert torch.cuda.is_available(), 'CUDA ist nicht verfügbar'; print('CUDA OK:', torch.cuda.get_device_name(0))" || goto :error
@@ -27,16 +37,24 @@ echo [4/7] Checking FFmpeg...
 if exist "%~dp0ffmpeg.exe" goto :ffmpeg_ok
 if exist "%~dp0third_party\ffmpeg.exe" goto :ffmpeg_ok
 where ffmpeg.exe >nul 2>&1
-if not errorlevel 1 goto :ffmpeg_ok
+if not errorlevel 1 (
+    echo FFmpeg aus PATH gefunden.
+    goto :ffmpeg_ok
+)
 
-echo FFmpeg nicht gefunden. Lade automatisch einen Windows Essentials Build...
+echo FFmpeg nicht gefunden. Lade automatisch die aktuellen Windows Essentials-Builds...
 set "FFMPEG_ZIP=%TEMP%\chatterbox_ffmpeg.zip"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile '%FFMPEG_ZIP%'" || goto :error
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$tmp=Join-Path $env:TEMP 'chatterbox_ffmpeg_extract'; if(Test-Path $tmp){Remove-Item $tmp -Recurse -Force}; Expand-Archive -LiteralPath '%FFMPEG_ZIP%' -DestinationPath $tmp -Force; $exe=Get-ChildItem $tmp -Recurse -Filter ffmpeg.exe | Select-Object -First 1; if(-not $exe){exit 1}; Copy-Item $exe.FullName '%~dp0ffmpeg.exe' -Force" || goto :error
 del /q "%FFMPEG_ZIP%" >nul 2>&1
 if not exist "%~dp0ffmpeg.exe" goto :error
+echo FFmpeg automatisch eingerichtet.
+
 :ffmpeg_ok
-if not exist "%~dp0app_icon.ico" (echo [ERROR] app_icon.ico fehlt.&goto :error)
+if not exist "%~dp0app_icon.ico" (
+    echo [ERROR] app_icon.ico fehlt.
+    goto :error
+)
 
 echo.
 echo [5/7] Verifying application dependencies...
@@ -56,14 +74,18 @@ echo.
 echo ========================================
 echo   BUILD SUCCESSFUL
 echo ========================================
+echo.
 echo Output: %~dp0dist\ChatterboxDesktop\
-echo EXE: %~dp0dist\ChatterboxDesktop\ChatterboxDesktop.exe
+echo EXE:    %~dp0dist\ChatterboxDesktop\ChatterboxDesktop.exe
+echo.
 pause
 exit /b 0
+
 :error
 echo.
 echo ========================================
 echo   BUILD FAILED
 echo ========================================
+echo.
 pause
 exit /b 1

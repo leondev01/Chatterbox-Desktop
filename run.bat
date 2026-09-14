@@ -1,4 +1,3 @@
 @echo off
-call ".venv\Scripts\activate.bat"
-python main.py
-pause
+start "" /b "%~dp0.venv\Scripts\pythonw.exe" "%~dp0main.py"
+exit /b
