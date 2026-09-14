@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import torch
 
@@ -77,6 +77,7 @@ class TTSEngine:
         exaggeration: float,
         cfg_weight: float,
         audio_prompt_path: Optional[str] = None,
+        progress_callback: Optional[Callable[[float], None]] = None,
     ):
         exaggeration = max(0.0, min(1.0, float(exaggeration)))
         cfg_weight = max(0.0, min(1.0, float(cfg_weight)))
@@ -88,13 +89,38 @@ class TTSEngine:
             # a second time in the same generation.
             audio_prompt_path = None
 
-        with torch.inference_mode():
-            return self.model.generate(
-                text,
-                audio_prompt_path=audio_prompt_path,
-                exaggeration=exaggeration,
-                cfg_weight=cfg_weight,
-            )
+        # The original Chatterbox T3 implementation uses tqdm for its 0..1000
+        # sampling loop. Wrap that iterator temporarily so the desktop UI can
+        # display real sampling progress instead of an indeterminate spinner.
+        t3_module = None
+        original_tqdm = None
+        if progress_callback is not None:
+            try:
+                import chatterbox.models.t3.t3 as t3_module
+                original_tqdm = t3_module.tqdm
+
+                def progress_tqdm(iterable, *args, **kwargs):
+                    total = kwargs.get("total") or getattr(iterable, "__len__", lambda: 0)()
+                    for index, item in enumerate(iterable, 1):
+                        if total:
+                            progress_callback(min(1.0, index / total))
+                        yield item
+
+                t3_module.tqdm = progress_tqdm
+            except Exception:
+                t3_module = None
+
+        try:
+            with torch.inference_mode():
+                return self.model.generate(
+                    text,
+                    audio_prompt_path=audio_prompt_path,
+                    exaggeration=exaggeration,
+                    cfg_weight=cfg_weight,
+                )
+        finally:
+            if t3_module is not None and original_tqdm is not None:
+                t3_module.tqdm = original_tqdm
 
     def save_waveform(self, waveform, path: str | Path) -> None:
         """Save the generated waveform as a plain PCM WAV file.

@@ -26,8 +26,10 @@ from qfluentwidgets import (
     ComboBox,
     FluentIcon as FIF,
     InfoBar,
+    InfoBarPosition,
     LineEdit,
     PrimaryPushButton,
+    ProgressBar,
     ProgressRing,
     PushButton,
     Slider,
@@ -45,6 +47,7 @@ class GenerationWorker(QObject):
     finished = Signal(str)
     error = Signal(str)
     status = Signal(str)
+    progress = Signal(int)
     cancelled = Signal()
 
     def __init__(
@@ -103,6 +106,9 @@ class GenerationWorker(QObject):
             started = time.perf_counter()
             if self.voice_path:
                 self.status.emit("Referenzstimme wird vorbereitet …")
+                self.progress.emit(5)
+            else:
+                self.progress.emit(5)
             self.status.emit("Chatterbox generiert Audio …")
 
             wav = self.engine.generate(
@@ -110,6 +116,7 @@ class GenerationWorker(QObject):
                 exaggeration=max(0.0, min(1.0, self.exaggeration)),
                 cfg_weight=max(0.0, min(1.0, self.cfg_weight)),
                 audio_prompt_path=self.voice_path or None,
+                progress_callback=lambda value: self.progress.emit(10 + int(value * 85)),
             )
 
             generation_seconds = time.perf_counter() - started
@@ -118,6 +125,7 @@ class GenerationWorker(QObject):
                 self.cancelled.emit()
                 return
 
+            self.progress.emit(95)
             self.status.emit(f"Audio fertig ({generation_seconds:.1f} s) · MP3 wird exportiert …")
             self.engine.save_waveform(wav, temp_wav)
 
@@ -126,6 +134,7 @@ class GenerationWorker(QObject):
                 return
 
             export_mp3_with_speed(temp_wav, output_mp3, self.speed)
+            self.progress.emit(100)
 
             self.finished.emit(str(output_mp3))
 
@@ -287,6 +296,13 @@ class MainWindow(QWidget):
         content_layout.setSpacing(12)
         content_layout.addWidget(text_card)
 
+        self.generation_progress = ProgressBar()
+        self.generation_progress.setRange(0, 100)
+        self.generation_progress.setValue(0)
+        self.generation_progress.setFixedHeight(6)
+        self.generation_progress.hide()
+        content_layout.addWidget(self.generation_progress)
+
         # Controls in two columns
         controls = QHBoxLayout()
         controls.setSpacing(18)
@@ -339,7 +355,7 @@ class MainWindow(QWidget):
         )
         self.speed = SliderRow(
             "Sprachgeschwindigkeit",
-            "Wird nach der Generierung per FFmpeg angepasst",
+            "1.00x entspricht der normalen Voiceover-Geschwindigkeit",
             50, 200, 100, "x"
         )
         right_layout.addWidget(self.exaggeration)
@@ -505,7 +521,7 @@ class MainWindow(QWidget):
         try:
             shutil.copy2(source, destination)
         except OSError as exc:
-            InfoBar.error("Stimme konnte nicht gespeichert werden", str(exc), parent=self)
+            InfoBar.error("Stimme konnte nicht gespeichert werden", str(exc), parent=self, position=InfoBarPosition.TOP)
             return
 
         self._load_voices()
@@ -517,6 +533,7 @@ class MainWindow(QWidget):
             "Stimme gespeichert",
             f"Die Referenzdatei wurde als „{destination.stem}“ gespeichert.",
             parent=self,
+            position=InfoBarPosition.TOP,
             duration=2500,
         )
 
@@ -537,7 +554,7 @@ class MainWindow(QWidget):
     def _generate(self) -> None:
         text = self.text_edit.toPlainText().strip()
         if not text:
-            InfoBar.warning("Kein Text", "Bitte gib zuerst Text ein.", parent=self)
+            InfoBar.warning("Kein Text", "Bitte gib zuerst Text ein.", parent=self, position=InfoBarPosition.TOP)
             return
 
         output_dir = self.output_edit.text().strip()
@@ -588,6 +605,7 @@ class MainWindow(QWidget):
         self.worker.finished.connect(self._generation_finished)
         self.worker.error.connect(self._generation_error)
         self.worker.status.connect(self._generation_status)
+        self.worker.progress.connect(self._generation_progress)
         self.worker.cancelled.connect(self._generation_cancelled)
         self.worker.finished.connect(self.thread.quit)
         self.worker.error.connect(self.thread.quit)
@@ -600,6 +618,10 @@ class MainWindow(QWidget):
     def _generation_status(self, message: str) -> None:
         self.info_label.setText(message)
 
+    @Slot(int)
+    def _generation_progress(self, value: int) -> None:
+        self.generation_progress.setValue(max(0, min(100, value)))
+
     @Slot(str)
     def _generation_finished(self, path: str) -> None:
         self._set_generating(False, f"Fertig: {Path(path).name}")
@@ -607,6 +629,7 @@ class MainWindow(QWidget):
             "Voiceover erstellt",
             f"Gespeichert unter:\n{path}",
             parent=self,
+            position=InfoBarPosition.TOP,
             duration=5000,
         )
 
@@ -617,6 +640,7 @@ class MainWindow(QWidget):
             "Generierung abgebrochen",
             "Es wurde keine MP3-Datei exportiert.",
             parent=self,
+            position=InfoBarPosition.TOP,
             duration=3500,
         )
 
@@ -627,6 +651,7 @@ class MainWindow(QWidget):
             "Generierung fehlgeschlagen",
             message,
             parent=self,
+            position=InfoBarPosition.TOP,
             duration=8000,
         )
 
@@ -659,4 +684,9 @@ class MainWindow(QWidget):
         # QFluentWidgets ProgressRing animates while visible; it has no
         # start()/stop() API in current PySide6-Fluent-Widgets releases.
         self.status_ring.setVisible(active)
+        self.generation_progress.setVisible(active)
+        if active:
+            self.generation_progress.setValue(0)
+        else:
+            self.generation_progress.setValue(0)
         self.info_label.setText(status)
